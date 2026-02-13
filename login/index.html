@@ -1,1 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>网盘登录系统 - GitHub 存储版</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            background: #121212; 
+            color: #e0e0e0; 
+            font-family: system-ui, -apple-system, Segoe UI, Roboto;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-panel { 
+            max-width: 400px; 
+            width: 100%;
+            margin: 20px;
+            background: #1c1c1e; 
+            padding: 30px; 
+            border-radius: 16px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .auth-panel h2 { 
+            text-align: center; 
+            margin-bottom: 20px; 
+            color: #fff;
+        }
+        .input-group { 
+            margin-bottom: 15px; 
+        }
+        .input-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-size: 14px; 
+            color: #d1d1d6;
+        }
+        .input-group input { 
+            width: 100%; 
+            padding: 12px; 
+            border: none; 
+            border-radius: 8px; 
+            background: #2c2c2e; 
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+        }
+        .input-group input:focus {
+            outline: 2px solid #0071e3;
+        }
+        .btn { 
+            width: 100%; 
+            padding: 12px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            transition: background 0.2s;
+        }
+        .primary-btn { 
+            background: #0071e3; 
+            color: #fff; 
+        }
+        .primary-btn:hover {
+            background: #0077ed;
+        }
+        .secondary-btn { 
+            background: #2c2c2e; 
+            color: #fff; 
+            margin-top: 10px; 
+        }
+        .secondary-btn:hover {
+            background: #3a3a3c;
+        }
+        .error { 
+            color: #ff3b30; 
+            text-align: center; 
+            margin-bottom: 10px; 
+            display: none; 
+            font-size: 14px;
+        }
+        .success-panel {
+            max-width: 400px;
+            width: 100%;
+            margin: 20px;
+            background: #1c1c1e;
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            display: none;
+        }
+        .success-panel h2 {
+            margin-bottom: 20px;
+            color: #fff;
+        }
+        .loading {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #8e8e93;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-panel" id="authPanel">
+        <div class="loading" id="loadingTip">处理中...</div>
+        <div class="error" id="errorTip"></div>
+        <h2 id="authTitle">登录</h2>
+        <div class="input-group">
+            <label for="username">用户名</label>
+            <input type="text" id="username" placeholder="请输入用户名">
+        </div>
+        <div class="input-group">
+            <label for="password">密码</label>
+            <input type="password" id="password" placeholder="请输入密码">
+        </div>
+        <button class="btn primary-btn" id="submitBtn">登录</button>
+        <button class="btn secondary-btn" id="switchBtn">切换到注册</button>
+    </div>
 
+    <div class="success-panel" id="successPanel">
+        <h2 id="successTitle">登录成功！</h2>
+        <button class="btn secondary-btn" id="logoutBtn">退出登录</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+    <script>
+        const GITHUB_TOKEN = '你的GitHub个人访问令牌';
+        const OWNER = 'HYQY2012';
+        const REPO = 'Data';
+        const FOLDER_PATH = 'users/';
+        const ENCRYPT_KEY = CryptoJS.enc.Utf8.parse('1234567890abcdef');
+        const ENCRYPT_IV = CryptoJS.enc.Utf8.parse('abcdef1234567890');
+
+        const authPanel = document.getElementById('authPanel');
+        const successPanel = document.getElementById('successPanel');
+        const authTitle = document.getElementById('authTitle');
+        const submitBtn = document.getElementById('submitBtn');
+        const switchBtn = document.getElementById('switchBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const errorTip = document.getElementById('errorTip');
+        const loadingTip = document.getElementById('loadingTip');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const successTitle = document.getElementById('successTitle');
+        let isLoginMode = true;
+
+        window.onload = function() {
+            const loggedUser = localStorage.getItem('loggedUser');
+            if (loggedUser) {
+                authPanel.style.display = 'none';
+                successPanel.style.display = 'block';
+                successTitle.textContent = `欢迎回来，${loggedUser}！`;
+            }
+        };
+
+        switchBtn.addEventListener('click', function() {
+            isLoginMode = !isLoginMode;
+            authTitle.textContent = isLoginMode ? '登录' : '注册';
+            submitBtn.textContent = isLoginMode ? '登录' : '注册';
+            switchBtn.textContent = isLoginMode ? '切换到注册' : '切换到登录';
+            errorTip.textContent = '';
+            errorTip.style.display = 'none';
+        });
+
+        submitBtn.addEventListener('click', async function() {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!username || !password) {
+                errorTip.textContent = '用户名和密码不能为空！';
+                errorTip.style.color = '#ff3b30';
+                errorTip.style.display = 'block';
+                return;
+            }
+
+            loadingTip.style.display = 'block';
+            errorTip.style.display = 'none';
+
+            try {
+                if (isLoginMode) {
+                    await login(username, password);
+                } else {
+                    await register(username, password);
+                }
+            } catch (err) {
+                errorTip.textContent = err.message;
+                errorTip.style.display = 'block';
+            } finally {
+                loadingTip.style.display = 'none';
+            }
+        });
+
+        logoutBtn.addEventListener('click', function() {
+            localStorage.removeItem('loggedUser');
+            successPanel.style.display = 'none';
+            authPanel.style.display = 'block';
+            usernameInput.value = '';
+            passwordInput.value = '';
+        });
+
+        function encryptData(data) {
+            return CryptoJS.AES.encrypt(
+                JSON.stringify(data),
+                ENCRYPT_KEY,
+                { iv: ENCRYPT_IV, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+            ).toString();
+        }
+
+        function decryptData(ciphertext) {
+            const bytes = CryptoJS.AES.decrypt(
+                ciphertext,
+                ENCRYPT_KEY,
+                { iv: ENCRYPT_IV, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+            );
+            return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+        }
+
+        async function getNextUserId() {
+            const response = await fetch(
+                `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FOLDER_PATH}`,
+                { headers: { 'Authorization': `token ${GITHUB_TOKEN}` } }
+            );
+
+            if (!response.ok) {
+                if (response.status === 404) return 1;
+                throw new Error('获取用户列表失败');
+            }
+
+            const files = await response.json();
+            const userFiles = files.filter(file => 
+                file.name.startsWith('user_') && file.name.endsWith('.md')
+            );
+            
+            if (userFiles.length === 0) return 1;
+            
+            const ids = userFiles.map(file => {
+                const match = file.name.match(/user_(\d+)\.md/);
+                return match ? parseInt(match[1]) : 0;
+            });
+            
+            return Math.max(...ids) + 1;
+        }
+
+        async function checkUserExists(username) {
+            const response = await fetch(
+                `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FOLDER_PATH}`,
+                { headers: { 'Authorization': `token ${GITHUB_TOKEN}` } }
+            );
+
+            if (!response.ok) {
+                if (response.status === 404) return false;
+                throw new Error('检查用户失败');
+            }
+
+            const files = await response.json();
+            for (const file of files) {
+                if (file.name.startsWith('user_') && file.name.endsWith('.md')) {
+                    const fileRes = await fetch(file.download_url);
+                    const content = await fileRes.text();
+                    try {
+                        const userData = decryptData(atob(content));
+                        if (userData.username === username) return true;
+                    } catch (e) {}
+                }
+            }
+            return false;
+        }
+
+        async function uploadUserFile(username, password) {
+            const nextId = await getNextUserId();
+            const fileName = `user_${String(nextId).padStart(4, '0')}.md`;
+            const filePath = `${FOLDER_PATH}${fileName}`;
+            
+            const userData = {
+                username: username,
+                password: password,
+                createTime: new Date().toISOString()
+            };
+            
+            const encryptedData = encryptData(userData);
+            const base64Content = btoa(encryptedData);
+
+            const response = await fetch(
+                `https://api.github.com/repos/${OWNER}/${REPO}/contents/${filePath}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${GITHUB_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: `新增用户: ${username}`,
+                        content: base64Content
+                    })
+                }
+            );
+
+            if (!response.ok) throw new Error('用户信息上传失败');
+            return await response.json();
+        }
+
+        async function getUserByUsername(username) {
+            const response = await fetch(
+                `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FOLDER_PATH}`,
+                { headers: { 'Authorization': `token ${GITHUB_TOKEN}` } }
+            );
+
+            if (!response.ok) throw new Error('获取用户信息失败');
+            const files = await response.json();
+
+            for (const file of files) {
+                if (file.name.startsWith('user_') && file.name.endsWith('.md')) {
+                    const fileRes = await fetch(file.download_url);
+                    const content = await fileRes.text();
+                    try {
+                        const userData = decryptData(atob(content));
+                        if (userData.username === username) {
+                            return userData;
+                        }
+                    } catch (e) {}
+                }
+            }
+            throw new Error('用户名或密码错误！');
+        }
+
+        async function register(username, password) {
+            const exists = await checkUserExists(username);
+            if (exists) throw new Error('用户名已存在！');
+            
+            await uploadUserFile(username, password);
+            
+            errorTip.textContent = '注册成功！即将跳转到登录';
+            errorTip.style.color = 'green';
+            errorTip.style.display = 'block';
+            
+            setTimeout(() => {
+                isLoginMode = true;
+                authTitle.textContent = '登录';
+                submitBtn.textContent = '登录';
+                switchBtn.textContent = '切换到注册';
+                errorTip.textContent = '';
+                errorTip.style.display = 'none';
+                usernameInput.value = '';
+                passwordInput.value = '';
+            }, 1500);
+        }
+
+        async function login(username, password) {
+            const userData = await getUserByUsername(username);
+            if (userData.password !== password) throw new Error('用户名或密码错误！');
+            
+            localStorage.setItem('loggedUser', username);
+            authPanel.style.display = 'none';
+            successPanel.style.display = 'block';
+            successTitle.textContent = `欢迎回来，${username}！`;
+        }
+    </script>
+</body>
+</html>
